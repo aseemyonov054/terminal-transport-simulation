@@ -16,6 +16,8 @@ The application lets you draw a truck route on a terminal layout map, place serv
 - Export simulation results to an Excel spreadsheet (`variant.xlsx`)
 - Define multiple parallel processes to model separate truck flows in one project
 
+![RTG Simulation Screenshot](static/sim-exmpl.png)
+
 ## Technology Stack
 
 | Layer | Technology |
