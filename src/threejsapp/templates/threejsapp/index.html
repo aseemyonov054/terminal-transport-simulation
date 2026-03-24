@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    {% load static %}
+    <div>
+      <div id="animation_screen" style="width: 800px; height: 600px; display: inline-block;"></div>
+      <div id="statistics_screen" style="display: inline-block; position: absolute; top:0; left:810px;">
+        <p>Simulation data</p>
+        <select class="form-select" aria-label="Default select example" id="chart_selection" onchange="open_chart()">
+          {% for pr in list_of_processes %}
+            {% for q in pr.queue_points %}
+              <option value="{{ forloop.parentloop.counter }}_{{ forloop.counter }}">Process #{{ forloop.parentloop.counter }}. System #{{ forloop.counter }}</option>
+            {% endfor %}
+          {% endfor %}
+        </select>
+        {% for pr in list_of_processes %}
+          {% for q in pr.queue_points %}
+            <canvas id="simulation_chart_{{forloop.parentloop.counter }}_{{ forloop.counter }}" style="width: 600px; display: {% if forloop.parentloop.counter != 1 or forloop.counter != 1 %}none{% else %}block{% endif %};"></canvas>
+          {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/",
+            "tween" : "https://unpkg.com/three@0.139.0/examples/jsm/libs/tween.module.min.js"
+          }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      // define parameters
+      var list_of_processes = {{ list_of_processes|safe }};
+      var list_of_models = {{ list_of_models|safe }};
+      console.log(list_of_models);
+      var image_path = "{{ image_path }}";
+      var img_height = "{{ img_height }}";
+      var img_width = "{{ img_width }}";
+      var list_of_groups = [];
+      var var_queue_points = []
+      
+      {% for pr in list_of_processes %}
+      var_queue_points.push({{ pr.queue_points }});
+      {% endfor %}
+
+      // function adds data to charts
+      function addData(chart, label, newData){
+        chart.data.labels.push(label);
+        chart.data.datasets[0].data.push(newData);
+        chart.update();
+      }
+
+      // define charts
+      var list_of_queue_charts = [];
+      for(let k = 0; k < var_queue_points.length; k++){
+        list_of_queue_charts.push([]);
+        for(let k2 = 0;k2 < var_queue_points[k].length; k2++){
+          var ctx = document.getElementById("simulation_chart_" + (k+1) + "_" + (k2+1));
+          var queue_chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: [{
+                label: 'Process #' + (k+1) + '. Queue length at System #' + (k2 + 1),
+                data: [],
+                borderWidth: 1,
+                borderColor: 'rgb(' + String(Math.random() * 255) + "," + String(Math.random() * 255) + "," + String(Math.random() * 255) + ")",
+              }]
+            },
+            options: {
+              scales: {
+                y: {
+                  beginAtZero: true
+                }
+              }
+            }
+          });
+          list_of_queue_charts[k].push(queue_chart);
+        }
+      }
+
+    // opens charts, when an option is selected
+    function open_chart(){
+      var option_select = document.getElementById("chart_selection");
+      for(let y = 0; y < option_select.options.length; y++){
+        document.getElementById("simulation_chart_" + option_select.options[y].value).style.display = "none";
+      }
+      document.getElementById("simulation_chart_" + option_select.value).style.display = "block";
+    }
+    </script>
+    <script type="module" src="{% static 'threejsapp/model_description.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <p>
+        <form id="main_form" method="POST" action="/dddmodel/parallel/new_path/">
+            {% csrf_token %}
+            <input type="hidden" name="model_id" value="{{ model_id }}">
+            <input type="submit" value="Create new path">
+            <input type="button" value="Run simulation" onclick="run_simulation()">
+        </form>
+    </p>
+    <p>
+        <table>
+            {% for path in list_of_paths %}
+            <tr>
+                <td>{{ path }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </p>
+    <script>
+        function run_simulation(){
+            var form = document.getElementById("main_form");
+            form.action = "/dddmodel/parallel/run_sim/";
+            form.submit();
+        }
+    </script>
+</body>
+</html>

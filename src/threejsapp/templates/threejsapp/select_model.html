@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    {% load static %}
+    <div id="animation_screen" style="width: 800px; height: 600px; display: inline-block;"></div>
+    <div id="statistics_screen" style="display: inline-block; position: absolute; top:0; left:810px;">
+        <form method="POST" action="/dddmodel/parallel/create_path/">
+            {% csrf_token %}
+            <input type="hidden" name="model_id" value="{{ model_id }}">
+            <select id="list_of_models" name="list_of_models">
+                <option value="-">-</option>
+                <option value="/static/threejsapp/three_d_models/ContainerShip5.gltf">Ship</option>
+                <option value="/static/threejsapp/three_d_models/Truck2.gltf">Car</option>
+            </select>
+            <input type="submit" value="Submit">
+        </form>
+    </div>
+    <script type="importmap">
+        {
+            "imports": {
+            "three": "https://unpkg.com/three@0.161.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.161.0/examples/jsm/",
+            "tween" : "https://unpkg.com/three@0.139.0/examples/jsm/libs/tween.module.min.js"
+            }
+        }
+    </script>
+    <script>
+        var load_model_path = "/static/threejsapp/three_d_models/ContainerShip5.gltf";
+    </script>
+    <script type="module" src="{% static 'threejsapp/select_model.js' %}"></script>
+</body>
+</html>

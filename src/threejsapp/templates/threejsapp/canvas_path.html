@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+</head>
+<body>
+    {% load static %}
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-7">
+                <svg version="1.1" width="800" height="600" xmlns="http://www.w3.org/2000/svg" id="svg_map" viewbox="0 0 800 600" style="border: 1px solid black; left:0px">
+                    {% if image_path %}
+                        <image href="{{ image_path }}" width="{{ img_width }}" height="{{ img_height }}" x="{{ img_x }}" y="{{ img_y}}" opacity="0.3"/>
+                    {% endif %}
+                    <line x1="400" x2="400" y1="300" y2="200" stroke="grey" stroke-width="1" class="cad_background"/>
+                    <text x="380" y="200" font-size="20" text-anchor="middle" fill="grey" class="cad_background">Y</text>
+                    <line x1="400" x2="500" y1="300" y2="300" stroke="grey" stroke-width="1" class="cad_background"/>
+                    <text x="500" y="320" font-size="20" text-anchor="middle" fill="grey" class="cad_background">X</text>
+                    {% for line in list_of_lines %}
+                        {% for l in line %}
+                            <circle cx="{{l.x1}}" cy="{{l.y1}}" r="3" stroke="grey" fill="transparent" stroke-width="1"></circle>
+                            <line x1="{{l.x1}}" x2="{{l.x2}}" y1="{{l.y1}}" y2="{{ l.y2 }}" stroke="grey" stroke-width="1"/>
+                            <circle cx="{{l.x2 }}" cy="{{l.y2}}" r="3" stroke="grey" fill="transparent" stroke-width="1"></circle>
+                        {% endfor %}
+                    {% endfor %}
+                </svg>
+                <p>Pointer position: <input type="text" id="pointer_pos" value=""></p>
+            </div>
+            <div class="col-5">
+                <p>Command string:</p>
+                <p><input type="text" id="function_input" value="" onkeydown="run_function()" style="width: 100%" placeholder="Input a command"></p>
+                <p><input type="button" class="btn btn btn-outline-secondary" value="Add point" onclick="select_cad_function('add_point')"></p>
+                <p><input type="button" class="btn btn btn-outline-secondary" value="Add line" onclick="select_cad_function('add_line')"></p>
+                <p><input type="button" class="btn btn btn-outline-secondary" value="Add Queueing System" onclick="select_cad_function('add_queue_system')"></p>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="pointer_binding" onclick="update_binding()">
+                    <label class="form-check-label" for="pointer_binding">Pointer binding</label>
+                </div>    
+
+                <form method="POST" action="{{ action }}" id="main_form" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="draw_road" name="draw_road" checked>
+                        <label class="form-check-label" for="draw_road">Draw roads</label>
+                    </div>
+                    <input type="hidden" id="model_id" name="model_id" value="{{ model_id }}">
+                    <input type="hidden" id="image_path" name="image_path" value="{{ image_path }}">
+                    <input type="hidden" id="list_of_actions" name="list_of_actions" value="">
+                    <input type="hidden" id="graph_conn" name="graph_conn" value="">
+                    <p>Маршруты</p>
+                    <input type="file" name="drawing" id="drawing"/>
+                    <input type="button" value="Submit" onclick="submit_form()">
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+    <script>
+        var svg_canvas = document.getElementById("svg_map");
+        var x_offset = 400;
+        var y_offset = 300;
+
+
+        var control = 0;
+        var last_x;
+        var last_y;
+        var new_x;
+        var new_y;
+        var path_consequence = [];
+        var graph_connection = [];
+        var scale = 0;
+
+        class CommandAction {
+            constructor(id, action, x, y, prev_point){
+                this.id = id;
+                this.action = action;
+                this.x = x;
+                this.y = y;
+                this.prev_point = prev_point;
+            }
+        }
+
+        //function adds an action to the list of actions
+        function add_new_action(action){
+            var push_index = -1;
+            for(let h = 0; h < path_consequence.length; h++){
+                if(path_consequence[h].x === action.x && path_consequence[h].y === action.y){
+                    push_index = h+1;
+                    break;
+                }
+            }
+            if(push_index === -1){
+                path_consequence.push(action);
+            }else{
+                path_consequence.splice(push_index,0,action);
+            }
+        }
+
+        function add_new_graph_connection(action1, action2){
+            graph_connection.push([action1.id, action2.id]);
+        }
+
+        // function add lines
+        function add_line(x1, y1, x2, y2){
+            var new_line = document.createElementNS('http://www.w3.org/2000/svg','line');
+            new_line.setAttribute("x1", x1);
+            new_line.setAttribute("x2", x2);
+            new_line.setAttribute("y1", y1);
+            new_line.setAttribute("y2", y2);
+            new_line.setAttribute("stroke", "black");
+            new_line.setAttribute("stroke-width", "1");
+            svg_canvas.appendChild(new_line);
+        }
+
+        //function add binding cube
+        function add_binding_cube(x1, y1){
+            var new_rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+            new_rect.setAttribute("x", x1 -5);
+            new_rect.setAttribute("y", y1 -5);
+            new_rect.setAttribute("width", 10);
+            new_rect.setAttribute("height", 10);
+            new_rect.setAttribute("stroke", "green");
+            new_rect.setAttribute("fill", "transparent");
+            new_rect.setAttribute("stroke-width", "1");
+            svg_canvas.appendChild(new_rect);
+            return new_rect;
+        }
+
+        // function adds point
+        function add_point(x, y){
+            var new_line = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            console.log(x);
+            console.log(y);
+            new_line.setAttribute("cx", x);
+            new_line.setAttribute("cy", y);
+            new_line.setAttribute("r", 3);
+            new_line.setAttribute("stroke", "red");
+            new_line.setAttribute("fill", "transparent");
+            new_line.setAttribute("stroke-width", "1");
+            svg_canvas.appendChild(new_line);
+        }
+
+        // function adds queueing system to the drawing
+        function add_queue_system(x, y){
+            var new_q_system = document.createElementNS('http://www.w3.org/2000/svg','rect');
+            new_q_system.setAttribute("x", x-20);
+            new_q_system.setAttribute("y", y-20);
+            new_q_system.setAttribute("width", 40);
+            new_q_system.setAttribute("height", 40);
+            new_q_system.setAttribute("stroke", "black");
+            new_q_system.setAttribute("fill", "transparent");
+            new_q_system.setAttribute("stroke-width", "1");
+            svg_canvas.appendChild(new_q_system);
+        }
+
+        // CAD function input
+        function run_function(){
+            if(event.key === "Enter"){
+                var input_field = document.getElementById("function_input");
+                if(input_field.value.includes("add_point")){
+                    var posittions = input_field.value.replace("add_point", "").replace("(", "").replace(")", "");
+                    var coords = posittions.split(",");
+                    var x = Number(coords[0]) + x_offset;
+                    var y = (-1) * Number(coords[1]) + y_offset;
+                    add_point(x, y);
+                }else if(input_field.value.includes("add_line")){
+                    var posittions = input_field.value.replace("add_line", "").replace("(", "").replace(")", "");
+                    var coords = posittions.split(",");
+                    var x1 = Number(coords[0]) + x_offset;
+                    var y1 = (-1) * Number(coords[1]) + y_offset;
+                    var x2 = Number(coords[2]) + x_offset;
+                    var y2 = (-1) * Number(coords[3]) + y_offset;
+                    add_point(x1, y1);
+                    add_point(x2, y2);
+                    add_line(x1, y1, x2, y2);
+                }
+                input_field.value = "";
+            }
+        }
+
+        // select different functions on certain btn
+        var function_type = "-";
+        function select_cad_function(fun_name){
+            if(function_type === "-" || function_type != fun_name){
+                function_type = fun_name;
+            }else{
+                control = 0;
+                last_x = NaN;
+                last_y = NaN;
+                function_type = "-";
+            }
+        }
+
+        //switch on and switch off pointer binding
+        var pointer_binding = false;
+        function update_binding(){
+            pointer_binding = !pointer_binding;
+            if(rect_object){
+                rect_object.remove();
+                rect_object = NaN;
+            }
+        }
+
+        // function look for a selected point in point list, according to the coordinates
+        function find_binded_point(x, y){
+            for(let p1 = 0; p1 < path_consequence.length; p1++){
+                if(path_consequence[p1].x == (x - x_offset) && path_consequence[p1].y == ((-1) * y + y_offset)){
+                    return path_consequence[p1];
+                }
+            }
+            return NaN;
+        }
+
+        
+        var closest_point;
+        var closest_point_1;
+        var closest_point_2;
+        // create path, basic on user input
+        svg_canvas.addEventListener("click", function(e){
+            e.preventDefault();
+            closest_point = NaN;
+            closest_point_1 = NaN;
+            closest_point_2 = NaN;
+            if(function_type == "add_point"){
+                //new_x = e.clientX;
+                //new_y = e.clientY;
+                let [old_x, old_y, w, h] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+                new_x = w * e.clientX / 800 + old_x;
+                new_y = h * e.clientY / 600 + old_y;
+                add_point(new_x, new_y);
+            }else if(function_type === "add_line"){
+                last_x = new_x;
+                last_y = new_y;
+                if(pointer_binding){
+                    if(goal_x != "-" && goal_y != "-"){
+                        new_x = goal_x;
+                        new_y = goal_y;
+                    }else{
+                        //new_x = e.clientX;
+                        //new_y = e.clientY;
+                        let [old_x, old_y, w, h] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+                        new_x = w * e.clientX / 800 + old_x;
+                        new_y = h * e.clientY / 600 + old_y;
+                    }
+                    if(last_x != NaN && last_y && NaN){
+                        closest_point_1 = find_binded_point(new_x, new_y);
+                        closest_point_2 = find_binded_point(last_x, last_y);
+                    }else{
+                        closest_point = find_binded_point(new_x, new_y);
+                    }
+                }else{
+                    //new_x = e.clientX;
+                    //new_y = e.clientY;
+                    let [old_x, old_y, w, h] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+                    new_x = w * e.clientX / 800 + old_x;
+                    new_y = h * e.clientY / 600 + old_y;
+                    closest_point = find_binded_point(last_x, last_y);
+                }
+                add_point(new_x, new_y);
+                if(control != 0){
+                    add_line(last_x, last_y, new_x, new_y);
+                    //path_consequence.push(new CommandAction('move', new_x, new_y));
+                    if(closest_point_1 != NaN && closest_point_2 != NaN){
+                        console.log(closest_point_1);
+                        console.log(closest_point_2);
+                        add_new_graph_connection(closest_point_1, closest_point_2);
+                    }
+                    add_new_action(new CommandAction(path_consequence.length+1, 'move', new_x - x_offset, (-1) * new_y + y_offset, closest_point));
+                }else{
+                    if(last_x != "-"){
+                        //path_consequence.push(new CommandAction('move', new_x, new_y));
+                        add_new_action(new CommandAction(path_consequence.length+1, 'move', new_x - x_offset, (-1) * new_y + y_offset, closest_point));
+                    }
+                    control = 1;
+                }
+            }else if(function_type === "add_queue_system"){
+                last_x = "-";
+                last_y = "-";
+                let [old_x, old_y, w, h] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+                if(pointer_binding){
+                    if(goal_x != "-" && goal_y != "-"){
+                        new_x = goal_x;
+                        new_y = goal_y;
+                    }else{
+                        new_x = w * e.clientX / 800 + old_x;
+                        new_y = h * e.clientY / 600 + old_y;
+                    }
+                    closest_point = find_binded_point(new_x, new_y);
+                    console.log(closest_point);
+                }else{
+                    new_x = w * e.clientX / 800 + old_x;
+                    new_y = h * e.clientY / 600 + old_y;
+                }
+                //path_consequence.push(new CommandAction('serve', new_x, new_y));
+                add_new_action(new CommandAction(path_consequence.length+1, 'serve', new_x - x_offset, (-1) * new_y +y_offset, closest_point));
+                add_queue_system(new_x, new_y);
+            }
+            console.log(path_consequence);
+        })
+
+        // show pointer position
+        var pointer_pos = document.getElementById("pointer_pos");
+        var pointer_coords = "";
+        var cur_x;
+        var cur_y;
+        var el_x;
+        var el_x2;
+        var el_y;
+        var el_y2;
+        var w;
+        var h;
+        var goal_x;
+        var goal_y;
+        var rect_x;
+        var rect_y;
+        var rect_object;
+        var middle_x;
+        var middle_y;
+        var list_of_svg_children;
+        var svg_child;
+        var el_type;
+        var distance;
+        var min_distance;
+        var limit_distance = 25;
+        //mousemove
+        svg_canvas.addEventListener("mousemove", function(e){
+            goal_x = "-";
+            goal_y = "-";
+            middle_x = NaN;
+            middle_y = NaN;
+            // show coordinates
+            let [old_x, old_y, w, h] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+            cur_x = Number(w * e.clientX / 800 + old_x);
+            cur_y = Number(h * e.clientY / 600 + old_y);
+            pointer_coords = String(cur_x - x_offset) + ", " + String((-1) * cur_y + y_offset);
+            pointer_pos.value = pointer_coords;
+            list_of_svg_children = svg_canvas.children;
+            if(pointer_binding){
+                // make bindings
+                min_distance = 10000000;
+                for(let i = 0; i < list_of_svg_children.length; i++){
+                    svg_child = list_of_svg_children[i];
+                    if(svg_child.getAttribute("class") != "cad_background"){
+                        el_type = svg_child.tagName
+                        if(el_type == "circle"){
+                            el_x = Number(svg_child.getAttribute("cx"));
+                            el_y = Number(svg_child.getAttribute("cy"));
+                            distance = Math.sqrt(Math.pow(el_x - cur_x, 2) + Math.pow(el_y - cur_y,2));
+                            if(distance < min_distance){
+                                min_distance = distance;
+                                if(min_distance <= limit_distance){
+                                    goal_x = el_x;
+                                    goal_y = el_y;
+                                }else{
+                                    goal_x = "-";
+                                    goal_y = "-";
+                                }
+                            }
+                        }else if(el_type == "rect"){
+                            el_x = Number(svg_child.getAttribute("x"));
+                            el_y = Number(svg_child.getAttribute("y"));
+                            w = Number(svg_child.getAttribute("width"));
+                            h = Number(svg_child.getAttribute("height"));
+                            distance = Math.sqrt(Math.pow((el_x + w/2) - cur_x, 2) + Math.pow((el_y + h/2) - cur_y,2));
+                            if(distance < min_distance){
+                                min_distance = distance;
+                                if(min_distance <= limit_distance){
+                                    goal_x = el_x + w/2;
+                                    goal_y = el_y + h/2;
+                                }else{
+                                    goal_x = "-";
+                                    goal_y = "-";
+                                }
+                            }
+                        }else if(el_type == "line"){
+                            el_x = Number(svg_child.getAttribute("x1"));
+                            el_x2 = Number(svg_child.getAttribute("x2"));
+                            if(el_x > el_x2){
+                                middle_x = (el_x - el_x2) / 2 + el_x2;
+                            }else{
+                                middle_x = (el_x2 - el_x) / 2 + el_x;
+                            }
+                            el_y = Number(svg_child.getAttribute("y1"));
+                            el_y2 = Number(svg_child.getAttribute("y2"));
+                            if(el_y > el_y2){
+                                middle_y = (el_y - el_y2) / 2 + el_y2;
+                            }else{
+                                middle_y = (el_y2 - el_y) / 2 + el_y;
+                            }
+                            distance = Math.sqrt(Math.pow(middle_x - cur_x, 2) + Math.pow(middle_y - cur_y,2));
+                            if(distance < min_distance){
+                                min_distance = distance;
+                                if(min_distance <= limit_distance){
+                                    goal_x = middle_x;
+                                    goal_y = middle_y;
+                                }else{
+                                    goal_x = "-";
+                                    goal_y = "-";
+                                }
+                            }
+                        }
+                    }
+                }
+                // add a green rectangle to the closest position
+                if(rect_x != goal_x && rect_y != goal_y){
+                    if(rect_object){
+                        rect_object.remove();
+                        rect_object = NaN;
+                    }
+                    if(goal_x != "-" && goal_y != "-"){
+                        rect_object = add_binding_cube(goal_x, goal_y);
+                    }
+                }
+            }
+        })
+
+        // image scale
+        let [vb_x, vb_y, vb_width, vb_height] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+        var viewBox = {
+            x:vb_x,
+            y:vb_y,
+            width: vb_width,
+            height: vb_height
+        };
+        console.log(viewBox);
+        var ratio = viewBox.width / svg_canvas.getBoundingClientRect().width;   
+        svg_canvas.addEventListener("wheel", function(event){
+            event.preventDefault();
+            
+            // set the scaling factor (and make sure it's at least 10%)
+            scale = event.deltaY / 1000;
+            scale = Math.abs(scale) < .1 ? .1 * event.deltaY / Math.abs(event.deltaY) : scale;
+    
+            // get point in SVG space
+            let pt = new DOMPoint(event.clientX, event.clientY);
+            pt = pt.matrixTransform(svg_canvas.getScreenCTM().inverse());
+    
+            // get viewbox transform
+            let [x, y, width, height] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+    
+            // get pt.x as a proportion of width and pt.y as proportion of height
+            let [xPropW, yPropH] = [(pt.x - x) / width, (pt.y - y) / height];
+            
+            // calc new width and height, new x2, y2 (using proportions and new width and height)
+            let [width2, height2] = [width + width * scale, height + height * scale];
+            let x2 = pt.x - xPropW * width2;
+            let y2 = pt.y - yPropH * height2;     
+    
+            svg_canvas.setAttribute('viewBox', `${x2} ${y2} ${width2} ${height2}`);
+            let [vb_x, vb_y, vb_width, vb_height] = svg_canvas.getAttribute('viewBox').split(' ').map(Number);
+            viewBox = {
+                x:vb_x,
+                y:vb_y,
+                width: vb_width,
+                height: vb_height
+            };
+            console.log(viewBox);
+            ratio = viewBox.width / svg_canvas.getBoundingClientRect().width;
+        });
+        // image move
+        function getPointFromEvent(event){
+            var point = {x:0, y:0};
+            point.x = event.clientX;
+            point.y = event.clientY;
+            return point;
+        }
+        var isPointerDown = false;
+        var pointerOrigin = {
+            x:0,
+            y:0
+        }
+        var newViewBox = {
+            x:0,
+            y:0
+        }
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        svg_canvas.addEventListener("mousedown", function(event){
+            event.preventDefault();
+            if(event.button === 2){
+                isPointerDown = true;
+                var pointerPosition = getPointFromEvent(event);
+                pointerOrigin.x = pointerPosition.x;
+                pointerOrigin.y = pointerPosition.y;
+            }
+        });
+        window.addEventListener('resize', function(){
+            //ratio = viewBox.width / svg_canvas.getBoundingClientRect().width;
+        });
+        svg_canvas.addEventListener("mousemove", function(event){
+            if(!isPointerDown){
+                return;
+            }
+            event.preventDefault();
+            var pointerPosition = getPointFromEvent(event);
+            newViewBox.x = viewBox.x - (pointerPosition.x - pointerOrigin.x) * ratio;
+            newViewBox.y = viewBox.y - (pointerPosition.y - pointerOrigin.y) * ratio;
+
+            var viewBoxString = `${newViewBox.x} ${newViewBox.y} ${viewBox.width} ${viewBox.height}`;
+            
+            svg_canvas.setAttribute('viewBox', viewBoxString);
+        });
+        svg_canvas.addEventListener("mouseup", function(e){
+            e.preventDefault();
+            isPointerDown = false;
+            viewBox.x = newViewBox.x;
+            viewBox.y = newViewBox.y;
+        });
+        svg_canvas.addEventListener("mouseleave", function(e){
+            e.preventDefault();
+            isPointerDown = false;
+            viewBox.x = newViewBox.x;
+            viewBox.y = newViewBox.y;
+        });
+
+        //form submit
+        function submit_form(){
+            var action_input = document.getElementById("list_of_actions");
+            action_input.value = JSON.stringify(path_consequence);
+            var graph_conn_input = document.getElementById("graph_conn");
+            graph_conn_input.value = JSON.stringify(graph_connection);
+            var form = document.getElementById("main_form");
+            form.submit();
+        }
+    </script>
+</body>
+</html>
